@@ -276,6 +276,14 @@ isvisible(Client *c) {
 	return c->tags & tagset[seltags];
 }
 
+static int
+numvisible(void) {
+	int n = 0;
+	for (Client *c = clients; c; c = c->next)
+		n += !!isvisible(c);
+	return n;
+}
+
 static bool
 is_content_visible(Client *c) {
 	if (!c)
@@ -324,6 +332,8 @@ showbar(void) {
 static void
 drawbar(void) {
 	int sx, sy, x, y, width;
+	int vis = 0;
+	Client *vc;
 	unsigned int occupied = 0, urgent = 0;
 	if (bar.pos == BAR_OFF)
 		return;
@@ -332,6 +342,10 @@ drawbar(void) {
 		occupied |= c->tags;
 		if (c->urgent)
 			urgent |= c->tags;
+		if (isvisible(c)) {
+			vis++;
+			vc = c;
+		}
 	}
 
 	getyx(stdscr, sy, sx);
@@ -365,8 +379,21 @@ drawbar(void) {
 	size_t numchars = mbstowcs(wbuf, bar.text, sizeof bar.text);
 
 	if (numchars != (size_t)-1 && (width = wcswidth(wbuf, maxwidth)) != -1) {
-		int pos;
-		for (pos = 0; pos + width < maxwidth; pos++)
+		int pos = 0;
+
+		if (vis == 1 && width < maxwidth) {
+			wchar_t wctbuf[sizeof vc->title];
+			size_t numtchars = mbstowcs(wctbuf, vc->title, sizeof vc->title);
+
+			for (size_t i = 0; i < numtchars && pos + width + 1 < maxwidth; i++) {
+				int cw = wcwidth(wctbuf[i]);
+				if (pos + width + cw + 1 > maxwidth)
+					break;
+				pos += cw;
+				addnwstr(wctbuf+i, 1);
+			}
+		}
+		for (; pos + width < maxwidth; pos++)
 			addch(' ');
 
 		for (size_t i = 0; i < numchars; i++) {
@@ -388,7 +415,7 @@ drawbar(void) {
 
 static int
 show_border(void) {
-	return (bar.pos != BAR_OFF) || (clients && clients->next);
+	return numvisible() > 1;
 }
 
 static void
@@ -627,6 +654,8 @@ term_title_handler(Vt *term, const char *title) {
 	settitle(c);
 	if (!isarrange(fullscreen) || sel == c)
 		draw_border(c);
+	if (isvisible(c) && numvisible() == 1)
+		drawbar();
 	applycolorrules(c);
 }
 
